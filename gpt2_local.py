@@ -13,7 +13,7 @@ model.eval()
 MAX_HISTORY_LENGTH = 500  # Max length of conversation history to maintain
 
 # Function to generate text based on a prompt
-def generate_text(prompt, max_length=150):
+def generate_text(prompt, max_length=500):
     # Encode the prompt to token IDs
     inputs = tokenizer.encode(prompt, return_tensors="pt")
 
@@ -64,7 +64,7 @@ def chat():
             conversation_history = tokenizer.decode(tokenized_history[-MAX_HISTORY_LENGTH:])
 
         # Generate the response
-        response = generate_text(conversation_history, max_length=150)
+        response = generate_text(conversation_history, max_length=500)
 
         # Add GPT-2 response to the conversation history
         conversation_history += f"{response}\n"
