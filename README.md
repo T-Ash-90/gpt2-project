@@ -1,19 +1,23 @@
-# GPT-2 Chatbot
+# DialoGPT Chatbot
 
-This project implements a conversational chatbot using the GPT-2 language model. It allows interactive chatting with the bot in a command-line interface. The bot generates responses based on user input, maintaining the conversation history for context.
+This project implements a conversational chatbot using the **DialoGPT-medium** model, a dialogue-optimized variant of GPT-2. It allows interactive chatting in the command-line interface, maintaining conversational context across multiple turns.
 
 ## Features
-- **Interactive chat**: Type your messages and the bot will respond.
-- **Token history management**: The conversation history is kept within a manageable length to avoid exceeding the model's token limit.
-- **Sampling-based generation**: The bot uses sampling techniques (`top-k`, `top-p`, and `temperature`) to make the responses more diverse and natural.
-- **Customizable token length**: You can modify the maximum length of conversation history and generated responses.
+
+- **Interactive chat**: Type your message and the bot responds in real-time.
+- **Turn-based memory**: Keeps track of recent conversation history to provide context-aware responses.
+- **Dialogue-optimized model**: Uses `microsoft/DialoGPT-medium`, fine-tuned specifically for conversational interactions.
+- **Controlled text generation**: Uses `top-k`, `top-p`, and `temperature` sampling to balance response coherence and diversity.
+- **Token-efficient history**: Automatically manages conversation length to stay within model limits.
 
 ## Requirements
-To run this project, you'll need the following Python libraries:
-- `torch`: For running the GPT-2 model.
-- `transformers`: For loading the GPT-2 model and tokenizer from Hugging Face.
 
-You can install the dependencies using `pip`:
+You’ll need the following Python libraries:
+
+- `torch`: For running the language model.
+- `transformers`: For loading DialoGPT and tokenizing input.
+
+Install them using pip:
 
 ```bash
 pip install torch transformers
@@ -21,16 +25,50 @@ pip install torch transformers
 
 ## How it Works
 
-### Model Loading
+### 🧠 Model
 
-The GPT-2 model and tokenizer are loaded using the Hugging Face `transformers` library. The model used in this example is `gpt2-medium`, but you can replace it with other GPT-2 variants (like `gpt2-xl` or `gpt2-large`) depending on the available resources. Larger models require more memory.
+This chatbot uses the `microsoft/DialoGPT-medium` model, which is a version of GPT-2 fine-tuned specifically for dialogue. Unlike the base GPT-2, DialoGPT understands conversation context, leading to more realistic and appropriate responses.
 
-### Generating Responses
+### 💬 Chat Flow
 
-1. The input text (your messages) is tokenized and passed into the GPT-2 model.
-2. The bot generates a response by predicting the next set of tokens (words/phrases) based on the input.
-3. The response is decoded back into human-readable text.
+1. **User Input**: You type a message into the terminal.
+2. **Tokenization**: The message is tokenized and appended to the current chat history.
+3. **Response Generation**: The model generates a reply based on the full conversation so far.
+4. **Decoding**: The generated tokens are decoded into human-readable text.
+5. **History Management**: Chat history is trimmed if it exceeds the token limit (to keep the context relevant and within the model’s 1024-token window).
 
-### Conversation History
+### ⚙️ Generation Settings
 
-To ensure that the bot provides contextually relevant responses, the conversation history is stored and passed along with each new input. The history is limited to a maximum number of tokens to prevent it from exceeding the model’s capacity (1024 tokens).
+The response generation uses sampling to create more human-like answers:
+
+| Setting               | Description                                               | Value        |
+|-----------------------|-----------------------------------------------------------|--------------|
+| `temperature`         | Controls randomness. Lower = more focused.               | `0.7`        |
+| `top_k`               | Considers only the top K token choices at each step.     | `50`         |
+| `top_p`               | Nucleus sampling. Chooses from top tokens that sum to P. | `0.95`       |
+| `no_repeat_ngram_size` | Prevents repetition of short phrases.                    | `3`          |
+
+These parameters help balance creativity and coherence during generation.
+
+### 🧹 History Trimming
+
+To avoid running into model token limits:
+
+- Only the most recent part of the conversation is kept.
+- The full input (user + bot history) is clipped if it exceeds 1024 tokens.
+- This keeps the model focused and prevents degradation of response quality.
+
+## 📝 Notes
+
+- This project runs completely **locally** — no API keys or internet connection are required after the model is downloaded.
+- For improved response quality, you can upgrade to `DialoGPT-large` (requires more memory).
+- If you prefer open-ended or creative generation (like storytelling), you can switch back to models like `gpt2`, `gpt2-medium`, or `gpt2-xl`.
+- Responses are limited to recent context due to the model’s 1024-token maximum input length.
+- DialoGPT is best suited for **short, multi-turn conversations**. It may not perform well in long or highly technical dialogues.
+
+## 🙏 Credits
+
+- **Model**: [`microsoft/DialoGPT-medium`](https://huggingface.co/microsoft/DialoGPT-medium)  
+- **Libraries**: [Hugging Face Transformers](https://github.com/huggingface/transformers)  
+- **Framework**: [PyTorch](https://pytorch.org/)  
+- **Project**: Developed and modified for local, real-time conversation

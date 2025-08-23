@@ -1,76 +1,117 @@
+# gpt2_local.py
+
 import torch
-from transformers import GPT2LMHeadModel, GPT2Tokenizer, GenerationConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Load the GPT-2 model and tokenizer from Hugging Face
-model_name = "gpt2-medium"
-tokenizer = GPT2Tokenizer.from_pretrained(model_name)
-model = GPT2LMHeadModel.from_pretrained(model_name)
+MODEL_NAME = "microsoft/DialoGPT-medium"
+MAX_HISTORY_TOKENS = 1000  # Max tokens to keep in chat history
+MAX_RESPONSE_TOKENS = 50   # Max tokens generated per reply
 
-# Set the model to evaluation mode
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(MODEL_NAME)
 model.eval()
 
-# Maximum token length for input and output
-MAX_HISTORY_LENGTH = 500  # Max length of conversation history to maintain
+def is_math_question(text):
+    ops = ['+', '-', '*', 'x', 'times', '/']
+    return any(op in text for op in ops)
 
-# Function to generate text based on a prompt
-def generate_text(prompt, max_length=500):
-    # Encode the prompt to token IDs
-    inputs = tokenizer.encode(prompt, return_tensors="pt")
+def solve_math_question(text):
+    import re
+    try:
+        expression = text.lower().replace('times', '*').replace('x', '*')
+        # Extract numbers and operators simply
+        numbers = re.findall(r'[\d\.]+', expression)
+        operators = re.findall(r'[\+\-\*\/]', expression)
+        if len(numbers) == 2 and len(operators) == 1:
+            expr = f"{numbers[0]}{operators[0]}{numbers[1]}"
+            answer = eval(expr)
+            # Format answer nicely: int if whole number
+            if answer == int(answer):
+                answer = int(answer)
+            return str(answer)
+    except:
+        pass
+    return None
 
-    # Create attention mask (a tensor of ones)
-    attention_mask = torch.ones(inputs.shape, dtype=torch.long)  # Create a mask of ones
+def polite_fallback():
+    fallback_replies = [
+        "I'm sorry, could you please rephrase that?",
+        "I want to help, but I didn't quite understand. Could you try again?",
+        "That's interesting! Could you tell me more?",
+        "I appreciate your question. Let me think about it.",
+        "I'm here to assist you, please ask me anything."
+    ]
+    import random
+    return random.choice(fallback_replies)
 
-    # Generation configuration (using `do_sample` for randomness control)
-    outputs = model.generate(
-        inputs,
-        max_length=min(max_length + len(inputs[0]), 1024),  # Limit total token length to 1024 tokens
-        num_return_sequences=1,  # Number of sequences to generate
-        no_repeat_ngram_size=3,  # Increase n-gram repetition penalty
-        pad_token_id=tokenizer.eos_token_id,  # Explicitly set pad_token_id to eos_token_id
-        eos_token_id=tokenizer.eos_token_id,  # Stop when EOS token is generated
-        attention_mask=attention_mask,  # Explicit attention mask
-        do_sample=True,  # Enable sampling for more natural responses
-        top_k=50,  # Top-k sampling for diversity
-        top_p=0.9,  # Top-p (nucleus) sampling to limit randomness
-        temperature=0.7,  # Lower temperature for more predictable answers
+def main():
+    print("Chat with DialoGPT! Type 'exit' to end.")
+
+    # Start with a system prompt to set personality
+    system_prompt = (
+        "The following is a polite and helpful conversation between a human and an AI assistant. "
+        "The AI is friendly, informative, and always responds politely.\n"
     )
-
-    # Decode the generated tokens back to text
-    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-    # Remove the user input from the response (if it exists at the start)
-    if generated_text.lower().startswith(prompt.lower()):
-        generated_text = generated_text[len(prompt):].strip()
-
-    return generated_text
-
-# Function to maintain conversation history
-def chat():
-    conversation_history = ""  # Start with an empty history
-    print("Chat with GPT-2! Type 'exit' to end.")
+    chat_history_ids = tokenizer.encode(system_prompt, return_tensors="pt")
 
     while True:
-        user_input = input("\033[96mYou: \033[0m")  # User input in cyan color
-
+        user_input = input("\033[96mYou:\033[0m ").strip()
         if user_input.lower() == "exit":
+            print("Goodbye! Have a great day!")
             break
 
-        # Add the user input to the conversation history
-        conversation_history += f"Human: {user_input}\nBot: "
+        # Handle math questions directly
+        if is_math_question(user_input):
+            answer = solve_math_question(user_input)
+            if answer:
+                print(f"\033[93mAI:\033[0m The answer is {answer}.")
+                # Update history with user and bot messages
+                user_ids = tokenizer.encode(user_input + tokenizer.eos_token, return_tensors='pt')
+                answer_ids = tokenizer.encode(answer + tokenizer.eos_token, return_tensors='pt')
+                chat_history_ids = torch.cat([chat_history_ids, user_ids, answer_ids], dim=-1)
+                # Trim history tokens
+                if chat_history_ids.size(-1) > MAX_HISTORY_TOKENS:
+                    chat_history_ids = chat_history_ids[:, -MAX_HISTORY_TOKENS:]
+                continue
 
-        # Trim conversation history to avoid exceeding max token length
-        tokenized_history = tokenizer.encode(conversation_history)
-        if len(tokenized_history) > MAX_HISTORY_LENGTH:
-            conversation_history = tokenizer.decode(tokenized_history[-MAX_HISTORY_LENGTH:])
+        # Otherwise, generate response with the model
+        new_user_ids = tokenizer.encode(user_input + tokenizer.eos_token, return_tensors='pt')
+        input_ids = torch.cat([chat_history_ids, new_user_ids], dim=-1)
 
-        # Generate the response
-        response = generate_text(conversation_history, max_length=500)
+        # Attention mask: all ones since no padding here
+        attention_mask = torch.ones(input_ids.shape, dtype=torch.long)
 
-        # Add GPT-2 response to the conversation history
-        conversation_history += f"{response}\n"
+        chat_history_ids = model.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            max_length=input_ids.shape[-1] + MAX_RESPONSE_TOKENS,
+            pad_token_id=tokenizer.eos_token_id,
+            do_sample=True,
+            top_k=50,
+            top_p=0.95,
+            temperature=0.7,
+            no_repeat_ngram_size=3,
+            eos_token_id=tokenizer.eos_token_id,
+        )
 
-        # Print the GPT-2 response in yellow
-        print(f"\033[93mBot: {response}\033[0m")  # \033[93m is for yellow color
+        # Decode only the new tokens
+        response = tokenizer.decode(chat_history_ids[:, input_ids.shape[-1]:][0], skip_special_tokens=True).strip()
 
-# Start the interactive chat
-chat()
+        # Ensure polite fallback if response empty or nonsensical
+        if not response:
+            response = polite_fallback()
+
+        print(f"\033[93mAI:\033[0m {response}")
+
+        # Update history with the new interaction
+        # Concatenate user input + model response (both with eos tokens)
+        user_ids = tokenizer.encode(user_input + tokenizer.eos_token, return_tensors='pt')
+        response_ids = tokenizer.encode(response + tokenizer.eos_token, return_tensors='pt')
+        chat_history_ids = torch.cat([chat_history_ids, user_ids, response_ids], dim=-1)
+
+        # Trim conversation history to avoid exceeding max tokens
+        if chat_history_ids.size(-1) > MAX_HISTORY_TOKENS:
+            chat_history_ids = chat_history_ids[:, -MAX_HISTORY_TOKENS:]
+
+if __name__ == "__main__":
+    main()
